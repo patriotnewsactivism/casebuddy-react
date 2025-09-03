@@ -1,69 +1,129 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 
-/**
- * CaseBuddy – React single-file app
- * - No deps beyond React (Tailwind classes are in your CSS build)
- * - Persists to localStorage (key: "cases")
- * - Sections: Cases, Documents, Evidence, Timeline, FOIA + search
- * - File uploads stored as base64 data URLs
- */
-
+// Generate a simple unique identifier based on timestamp and randomness.
 function uuid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
 }
 
+/**
+ * CaseBuddy React portal with authentication, navigation and AI tools.
+ *
+ * This version extends the basic case manager to support multi-user accounts,
+ * login/sign‑up, a top navigation menu, and an AI tools section. Each user’s
+ * data is kept separate in localStorage. A simple search and summary
+ * generator provide quick insights into a case without external APIs.
+ */
 export default function App() {
-  // ---------- State ----------
+  // --------- Authentication state ---------
+  const [users, setUsers] = useState([]); // list of { username, password }
+  const [currentUser, setCurrentUser] = useState(null); // string username
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+
+  // --------- App view state ---------
+  const [view, setView] = useState('cases'); // 'cases' | 'ai' | 'account'
+
+  // --------- Case management state ---------
   const [cases, setCases] = useState([]);
   const [currentCaseId, setCurrentCaseId] = useState(null);
 
-  // Add Case form
-  const [caseTitle, setCaseTitle] = useState("");
-  const [caseDescription, setCaseDescription] = useState("");
+  // New case form
+  const [caseTitle, setCaseTitle] = useState('');
+  const [caseDescription, setCaseDescription] = useState('');
 
-  // Search
-  const [query, setQuery] = useState("");
+  // Search query
+  const [query, setQuery] = useState('');
 
-  // Documents form
-  const [docName, setDocName] = useState("");
+  // Document form
+  const [docName, setDocName] = useState('');
   const docFileRef = useRef(null);
 
   // Evidence form
-  const [evName, setEvName] = useState("");
+  const [evName, setEvName] = useState('');
   const evFileRef = useRef(null);
 
-  // Timeline form
-  const [tlDate, setTlDate] = useState("");
-        [tlTitle, setTlTitle] = useState(""); // <-- fix typo when pasting: remove "the"
-  const [tlDesc, setTlDesc] = useState("");
+  // Timeline event form
+  const [tlDate, setTlDate] = useState('');
+  const [tlTitle, setTlTitle] = useState('');
+  const [tlDesc, setTlDesc] = useState('');
 
   // FOIA form
-  const [foiaSubject, setFoiaSubject] = useState("");
-  const [foiaDesc, setFoiaDesc] = useState("");
+  const [foiaSubject, setFoiaSubject] = useState('');
+  const [foiaDesc, setFoiaDesc] = useState('');
 
-  // ---------- Persistence ----------
+  // --------- AI tools state ---------
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiResults, setAiResults] = useState([]);
+  const [aiSummary, setAiSummary] = useState('');
+
+  // --------- Initialization ---------
+  // Load users and current user on mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("cases");
-      const parsed = stored ? JSON.parse(stored) : [];
-      setCases(Array.isArray(parsed) ? parsed : []);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setCurrentCaseId(parsed[0].id);
+      const storedUsers = localStorage.getItem('users');
+      if (storedUsers) {
+        const parsed = JSON.parse(storedUsers);
+        if (Array.isArray(parsed)) setUsers(parsed);
       }
-    } catch (e) {
-      console.warn("Failed to read cases from storage", e);
+      const storedCurrentUser = localStorage.getItem('currentUser');
+      if (storedCurrentUser) {
+        setCurrentUser(storedCurrentUser);
+      }
+    } catch (err) {
+      console.warn('Failed to load user data', err);
     }
   }, []);
 
+  // Whenever currentUser changes, load that user’s cases
+  useEffect(() => {
+    if (currentUser) {
+      try {
+        const storedCases = localStorage.getItem(`cases_${currentUser}`);
+        if (storedCases) {
+          const parsed = JSON.parse(storedCases);
+          if (Array.isArray(parsed)) {
+            setCases(parsed);
+            if (parsed.length > 0) setCurrentCaseId(parsed[0].id);
+          } else {
+            setCases([]);
+          }
+        } else {
+          setCases([]);
+        }
+      } catch (err) {
+        console.warn('Failed to load cases for user', currentUser, err);
+        setCases([]);
+      }
+    } else {
+      setCases([]);
+    }
+  }, [currentUser]);
+
+  // Save users to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem("cases", JSON.stringify(cases));
-    } catch (e) {
-      console.error("Failed to save cases", e);
+      localStorage.setItem('users', JSON.stringify(users));
+    } catch (err) {
+      console.error('Unable to persist users', err);
     }
-  }, [cases]);
+  }, [users]);
 
-  // ---------- Derived ----------
+  // Save cases for currentUser whenever cases change
+  useEffect(() => {
+    if (currentUser) {
+      try {
+        localStorage.setItem(
+          `cases_${currentUser}`,
+          JSON.stringify(cases)
+        );
+      } catch (err) {
+        console.error('Unable to persist cases for user', currentUser, err);
+      }
+    }
+  }, [cases, currentUser]);
+
+  // --------- Derived data ---------
   const currentCase = useMemo(
     () => cases.find((c) => c.id === currentCaseId) || null,
     [cases, currentCaseId]
@@ -72,43 +132,116 @@ export default function App() {
   const searchResults = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    const res = [];
+    const results = [];
     for (const cs of cases) {
-      if (cs.title?.toLowerCase().includes(q)) {
-        res.push({ type: "Case", title: cs.title, caseId: cs.id });
+      if (cs.title && cs.title.toLowerCase().includes(q)) {
+        results.push({ type: 'Case', label: cs.title, caseId: cs.id });
       }
       for (const d of cs.documents || []) {
-        if (d.name?.toLowerCase().includes(q)) {
-          res.push({ type: "Document", title: d.name, caseId: cs.id });
+        if (d.name && d.name.toLowerCase().includes(q)) {
+          results.push({ type: 'Document', label: d.name, caseId: cs.id });
         }
       }
       for (const ev of cs.evidence || []) {
-        if (ev.name?.toLowerCase().includes(q)) {
-          res.push({ type: "Evidence", title: ev.name, caseId: cs.id });
+        if (ev.name && ev.name.toLowerCase().includes(q)) {
+          results.push({ type: 'Evidence', label: ev.name, caseId: cs.id });
         }
       }
       for (const ev of cs.timeline || []) {
-        const hit =
-          ev.title?.toLowerCase().includes(q) ||
-          ev.description?.toLowerCase().includes(q);
-        if (hit) res.push({ type: "Timeline", title: `${ev.date}: ${ev.title}`, caseId: cs.id });
+        const tHit = ev.title && ev.title.toLowerCase().includes(q);
+        const dHit = ev.description && ev.description.toLowerCase().includes(q);
+        if (tHit || dHit) {
+          results.push({ type: 'Timeline', label: `${ev.date}: ${ev.title}`, caseId: cs.id });
+        }
       }
       for (const fr of cs.foia || []) {
-        const hit =
-          fr.subject?.toLowerCase().includes(q) ||
-          fr.description?.toLowerCase().includes(q);
-        if (hit) res.push({ type: "FOIA", title: fr.subject, caseId: cs.id });
+        const sHit = fr.subject && fr.subject.toLowerCase().includes(q);
+        const dHit2 = fr.description && fr.description.toLowerCase().includes(q);
+        if (sHit || dHit2) {
+          results.push({ type: 'FOIA', label: fr.subject, caseId: cs.id });
+        }
       }
     }
-    return res;
+    return results;
   }, [cases, query]);
 
-  // ---------- Handlers ----------
-  function addCase(e) {
+  // --------- Utility functions ---------
+  function toDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (err) => reject(err);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function mutateCurrentCase(mutator) {
+    setCases((prev) => {
+      const next = prev.map((c) => ({ ...c }));
+      const idx = next.findIndex((c) => c.id === currentCaseId);
+      if (idx === -1) return prev;
+      const cs = {
+        ...next[idx],
+        documents: [...(next[idx].documents || [])],
+        evidence: [...(next[idx].evidence || [])],
+        timeline: [...(next[idx].timeline || [])],
+        foia: [...(next[idx].foia || [])],
+      };
+      mutator(cs);
+      next[idx] = cs;
+      return next;
+    });
+  }
+
+  // --------- Authentication handlers ---------
+  function handleSignup(e) {
     e.preventDefault();
+    const username = authUsername.trim();
+    const password = authPassword;
+    if (!username || !password) return;
+    if (users.find((u) => u.username === username)) {
+      alert('Username already exists. Please choose another.');
+      return;
+    }
+    const newUser = { username, password: btoa(password) };
+    setUsers((prev) => [...prev, newUser]);
+    setCurrentUser(username);
+    localStorage.setItem('currentUser', username);
+    setAuthUsername('');
+    setAuthPassword('');
+    setAuthMode('login');
+  }
+
+  function handleLogin(e) {
+    e.preventDefault();
+    const username = authUsername.trim();
+    const password = authPassword;
+    const user = users.find((u) => u.username === username);
+    if (!user || btoa(password) !== user.password) {
+      alert('Invalid username or password.');
+      return;
+    }
+    setCurrentUser(username);
+    localStorage.setItem('currentUser', username);
+    setAuthUsername('');
+    setAuthPassword('');
+  }
+
+  function handleLogout() {
+    // Save cases already persisted in effect
+    setCurrentUser(null);
+    localStorage.removeItem('currentUser');
+    setView('cases');
+    setCurrentCaseId(null);
+  }
+
+  // --------- Event handlers for cases ---------
+  function handleAddCase(e) {
+    e.preventDefault();
+    if (!currentUser) return;
     const title = caseTitle.trim();
     if (!title) return;
-    const cs = {
+    const newCase = {
       id: uuid(),
       title,
       description: caseDescription.trim(),
@@ -117,390 +250,489 @@ export default function App() {
       timeline: [],
       foia: [],
     };
-    setCases((prev) => [cs, ...prev]);
-    setCurrentCaseId(cs.id);
-    setCaseTitle("");
-    setCaseDescription("");
+    setCases((prev) => [newCase, ...prev]);
+    setCurrentCaseId(newCase.id);
+    setCaseTitle('');
+    setCaseDescription('');
   }
 
-  function onSelectCase(id) {
+  function selectCase(id) {
     setCurrentCaseId(id);
+    setView('cases');
   }
 
-  async function addDocument(e) {
+  async function handleAddDocument(e) {
     e.preventDefault();
     if (!currentCase) return;
     const name = docName.trim();
     if (!name) return;
-
     const doc = { id: uuid(), name };
     const fileEl = docFileRef.current;
-    if (fileEl?.files?.[0]) {
+    if (fileEl && fileEl.files && fileEl.files[0]) {
       const file = fileEl.files[0];
       doc.content = await toDataUrl(file);
-      fileEl.value = "";
+      fileEl.value = '';
     }
-
     mutateCurrentCase((cs) => {
       cs.documents.push(doc);
     });
-    setDocName("");
+    setDocName('');
   }
 
-  async function addEvidence(e) {
+  async function handleAddEvidence(e) {
     e.preventDefault();
     if (!currentCase) return;
     const name = evName.trim();
     if (!name) return;
-
     const ev = { id: uuid(), name };
     const fileEl = evFileRef.current;
-    if (fileEl?.files?.[0]) {
+    if (fileEl && fileEl.files && fileEl.files[0]) {
       const file = fileEl.files[0];
       ev.content = await toDataUrl(file);
-      fileEl.value = "";
+      fileEl.value = '';
     }
-
     mutateCurrentCase((cs) => {
       cs.evidence.push(ev);
     });
-    setEvName("");
+    setEvName('');
   }
 
-  function addTimeline(e) {
+  function handleAddTimeline(e) {
     e.preventDefault();
     if (!currentCase) return;
     const title = tlTitle.trim();
     if (!title) return;
-    const date = tlDate || new Date().toISOString().split("T")[0];
+    const date = tlDate || new Date().toISOString().split('T')[0];
     const description = tlDesc.trim();
-
+    const event = { id: uuid(), date, title, description };
     mutateCurrentCase((cs) => {
-      cs.timeline.push({ id: uuid(), date, title, description });
+      cs.timeline.push(event);
     });
-
-    setTlDate("");
-    setTlTitle("");
-    setTlDesc("");
+    setTlDate('');
+    setTlTitle('');
+    setTlDesc('');
   }
 
-  function addFoia(e) {
+  function handleAddFoia(e) {
     e.preventDefault();
     if (!currentCase) return;
     const subject = foiaSubject.trim();
     if (!subject) return;
     const description = foiaDesc.trim();
-
     mutateCurrentCase((cs) => {
       cs.foia.push({ id: uuid(), subject, description });
     });
-
-    setFoiaSubject("");
-    setFoiaDesc("");
+    setFoiaSubject('');
+    setFoiaDesc('');
   }
 
-  function mutateCurrentCase(mutator) {
-    setCases((prev) => {
-      const next = prev.map((c) => ({ ...c }));
-      const i = next.findIndex((c) => c.id === currentCaseId);
-      if (i === -1) return prev;
-      const cs = {
-        ...next[i],
-        documents: [...(next[i].documents || [])],
-        evidence: [...(next[i].evidence || [])],
-        timeline: [...(next[i].timeline || [])],
-        foia: [...(next[i].foia || [])],
-      };
-      mutator(cs);
-      next[i] = cs;
-      return next;
-    });
+  function handleSelectSearchResult(r) {
+    setCurrentCaseId(r.caseId);
+    setQuery('');
+    setView('cases');
   }
 
-  function toDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  // --------- AI tools ---------
+  function runAiSearch(e) {
+    e.preventDefault();
+    const q = aiQuery.trim().toLowerCase();
+    if (!q) {
+      setAiResults([]);
+      return;
+    }
+    const results = [];
+    for (const cs of cases) {
+      if (cs.title && cs.title.toLowerCase().includes(q)) {
+        results.push({ type: 'Case', text: cs.title, caseId: cs.id });
+      }
+      for (const d of cs.documents || []) {
+        if (d.name && d.name.toLowerCase().includes(q)) {
+          results.push({ type: 'Document', text: d.name, caseId: cs.id });
+        }
+      }
+      for (const ev of cs.evidence || []) {
+        if (ev.name && ev.name.toLowerCase().includes(q)) {
+          results.push({ type: 'Evidence', text: ev.name, caseId: cs.id });
+        }
+      }
+      for (const ev of cs.timeline || []) {
+        if ((ev.title && ev.title.toLowerCase().includes(q)) || (ev.description && ev.description.toLowerCase().includes(q))) {
+          results.push({ type: 'Timeline', text: `${ev.date}: ${ev.title}` + (ev.description ? ' – ' + ev.description : ''), caseId: cs.id });
+        }
+      }
+      for (const fr of cs.foia || []) {
+        if ((fr.subject && fr.subject.toLowerCase().includes(q)) || (fr.description && fr.description.toLowerCase().includes(q))) {
+          results.push({ type: 'FOIA', text: `${fr.subject}` + (fr.description ? ' – ' + fr.description : ''), caseId: cs.id });
+        }
+      }
+    }
+    setAiResults(results);
   }
 
-  // ---------- UI ----------
-  return (
-    <div className="min-h-screen flex flex-col bg-slate-100 text-slate-900">
-      {/* Header */}
-      <header className="bg-blue-700 text-white px-6 py-4 shadow">
-        <h1 className="text-2xl font-semibold">CaseBuddy – Case Intelligence Portal</h1>
-        <p className="opacity-80">Organise, analyse and manage your legal cases with ease.</p>
-      </header>
+  function generateSummary() {
+    if (!currentCase) {
+      setAiSummary('Select a case first to generate a summary.');
+      return;
+    }
+    let summary = '';
+    summary += currentCase.title ? `Case Title: ${currentCase.title}.\n` : '';
+    summary += currentCase.description ? `Description: ${currentCase.description}.\n` : '';
+    if (currentCase.documents && currentCase.documents.length > 0) {
+      summary += `Documents: ${currentCase.documents.map((d) => d.name).join(', ')}.\n`;
+    }
+    if (currentCase.evidence && currentCase.evidence.length > 0) {
+      summary += `Evidence: ${currentCase.evidence.map((e) => e.name).join(', ')}.\n`;
+    }
+    if (currentCase.timeline && currentCase.timeline.length > 0) {
+      summary += 'Timeline: ';
+      summary += currentCase.timeline
+        .sort((a, b) => new Date(a.date) - new Date(b.date))
+        .map((ev) => `${ev.date}: ${ev.title}${ev.description ? ' (' + ev.description + ')' : ''}`)
+        .join('; ') + '.\n';
+    }
+    if (currentCase.foia && currentCase.foia.length > 0) {
+      summary += 'FOIA Requests: ';
+      summary += currentCase.foia
+        .map((fr) => `${fr.subject}${fr.description ? ' (' + fr.description + ')' : ''}`)
+        .join('; ') + '.\n';
+    }
+    setAiSummary(summary);
+  }
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-full md:w-1/3 lg:w-[28%] min-w-[220px] bg-white border-r border-slate-200 p-4 overflow-y-auto">
-          <h2 className="text-xl font-semibold mb-2">Cases</h2>
-          <ul className="space-y-2 mb-4">
-            {cases.length === 0 ? (
-              <li className="text-slate-500 italic">No cases yet</li>
-            ) : (
-              cases.map((cs) => (
-                <li
-                  key={cs.id}
-                  className={`p-2 rounded border cursor-pointer bg-slate-50 hover:bg-blue-50 ${
-                    cs.id === currentCaseId ? "bg-blue-100 border-blue-300" : "border-slate-200"
-                  }`}
-                  onClick={() => onSelectCase(cs.id)}
-                  title={cs.title}
-                >
-                  {cs.title || "Untitled case"}
-                </li>
-              ))
-            )}
-          </ul>
-
-          {/* Add New Case */}
-          <h3 className="font-semibold mb-2">Add New Case</h3>
-          <form onSubmit={addCase} className="flex flex-col gap-2 mb-6">
-            <input
-              type="text"
-              value={caseTitle}
-              onChange={(e) => setCaseTitle(e.target.value)}
-              placeholder="Case title"
-              className="border rounded px-2 py-1"
-              required
-            />
-            <textarea
-              value={caseDescription}
-              onChange={(e) => setCaseDescription(e.target.value)}
-              placeholder="Case description"
-              className="border rounded px-2 py-1"
-              rows={3}
-            />
-            <button className="self-start bg-blue-700 text-white px-3 py-1 rounded hover:bg-blue-800">
-              Add Case
-            </button>
-          </form>
-
-          {/* Search */}
-          <h3 className="font-semibold mb-2">Search</h3>
+  // --------- Render ---------
+  // If not logged in, show auth forms
+  if (!currentUser) {
+    return (
+      <div className="auth-container">
+        <h2>{authMode === 'login' ? 'Login' : 'Sign Up'}</h2>
+        <form onSubmit={authMode === 'login' ? handleLogin : handleSignup} className="form">
           <input
             type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search cases, documents, evidence…"
-            className="border rounded px-2 py-1 w-full"
+            placeholder="Username"
+            value={authUsername}
+            onChange={(e) => setAuthUsername(e.target.value)}
+            required
           />
-          <ul className="mt-2 space-y-1">
-            {searchResults.map((r, idx) => (
-              <li
-                key={idx}
-                className="p-2 rounded border border-slate-200 bg-slate-50 cursor-pointer hover:bg-blue-50"
-                onClick={() => {
-                  setCurrentCaseId(r.caseId);
-                  setQuery("");
-                }}
-              >
-                <span className="font-medium">{r.type}:</span> {r.title}
-              </li>
-            ))}
-          </ul>
-        </aside>
-
-        {/* Main panel */}
-        <main className="flex-1 p-6 overflow-y-auto">
-          <h2 className="text-xl font-semibold mb-4">Case Details</h2>
-
-          {!currentCase ? (
-            <div className="text-slate-500 italic">Select a case to view its details.</div>
+          <input
+            type="password"
+            placeholder="Password"
+            value={authPassword}
+            onChange={(e) => setAuthPassword(e.target.value)}
+            required
+          />
+          <button type="submit">{authMode === 'login' ? 'Login' : 'Sign Up'}</button>
+        </form>
+        <p>
+          {authMode === 'login' ? (
+            <>
+              Don’t have an account?{' '}
+              <a href="#" onClick={() => setAuthMode('signup')}>Sign Up</a>
+            </>
           ) : (
-            <div className="space-y-8">
-              {/* Title & Description */}
-              <div>
-                <h3 className="text-lg font-semibold" title={currentCase.title}>
-                  {currentCase.title || "Untitled case"}
-                </h3>
-                {currentCase.description && (
-                  <p className="text-slate-700">{currentCase.description}</p>
-                )}
-              </div>
+            <>
+              Already have an account?{' '}
+              <a href="#" onClick={() => setAuthMode('login')}>Login</a>
+            </>
+          )}
+        </p>
+      </div>
+    );
+  }
 
-              {/* Documents */}
-              <section>
-                <h4 className="font-semibold mb-2">Documents</h4>
-                <ul className="space-y-1 mb-2">
-                  {(currentCase.documents ?? []).length === 0 ? (
-                    <li className="text-slate-600">No documents.</li>
-                  ) : (
-                    currentCase.documents.map((d) => (
-                      <li key={d.id} className="p-2 rounded border border-slate-200 bg-slate-50">
-                        {d.content ? (
-                          <a
-                            href={d.content}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-700 hover:underline break-all"
-                          >
-                            {d.name}
-                          </a>
-                        ) : (
-                          <span>{d.name}</span>
-                        )}
-                      </li>
-                    ))
-                  )}
-                </ul>
-                <form onSubmit={addDocument} className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={docName}
-                    onChange={(e) => setDocName(e.target.value)}
-                    placeholder="Document name"
-                    required
-                    className="border rounded px-2 py-1 flex-1 min-w-[180px]"
-                  />
-                  <input
-                    type="file"
-                    ref={docFileRef}
-                    accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
-                    className="min-w-[200px]"
-                  />
-                  <button className="bg-blue-700 text-white px-3 py-1 rounded hover:bg-blue-800">
-                    Add Document
-                  </button>
-                </form>
-              </section>
+  return (
+    <div className="app-wrapper">
+      {/* Top navigation bar */}
+      <nav className="navbar">
+        <ul>
+          <li
+            className={view === 'cases' ? 'active' : ''}
+            onClick={() => setView('cases')}
+          >
+            Cases
+          </li>
+          <li
+            className={view === 'ai' ? 'active' : ''}
+            onClick={() => setView('ai')}
+          >
+            AI Tools
+          </li>
+          <li
+            className={view === 'account' ? 'active' : ''}
+            onClick={() => setView('account')}
+          >
+            Account
+          </li>
+        </ul>
+        <div className="user-info">
+          Logged in as <strong>{currentUser}</strong> &nbsp;
+          <button onClick={handleLogout}>Logout</button>
+        </div>
+      </nav>
 
-              {/* Evidence */}
-              <section>
-                <h4 className="font-semibold mb-2">Evidence</h4>
-                <ul className="space-y-1 mb-2">
-                  {(currentCase.evidence ?? []).length === 0 ? (
-                    <li className="text-slate-600">No evidence.</li>
-                  ) : (
-                    currentCase.evidence.map((ev) => (
-                      <li key={ev.id} className="p-2 rounded border border-slate-200 bg-slate-50">
-                        {ev.content ? (
-                          <a
-                            href={ev.content}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-700 hover:underline break-all"
-                          >
-                            {ev.name}
-                          </a>
-                        ) : (
-                          <span>{ev.name}</span>
-                        )}
-                      </li>
-                    ))
-                  )}
-                </ul>
-                <form onSubmit={addEvidence} className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={evName}
-                    onChange={(e) => setEvName(e.target.value)}
-                    placeholder="Evidence name"
-                    required
-                    className="border rounded px-2 py-1 flex-1 min-w-[180px]"
-                  />
-                  <input type="file" ref={evFileRef} accept="image/*,video/*" className="min-w-[200px]" />
-                  <button className="bg-blue-700 text-white px-3 py-1 rounded hover:bg-blue-800">
-                    Add Evidence
-                  </button>
-                </form>
-              </section>
+      {/* Header section */}
+      <header>
+        <h1>CaseBuddy – Case Intelligence Portal</h1>
+        <div className="subtitle">
+          Organise, analyse and manage your legal cases with ease.
+        </div>
+      </header>
 
-              {/* Timeline */}
-              <section>
-                <h4 className="font-semibold mb-2">Timeline</h4>
-                <ul className="space-y-1 mb-2">
-                  {[...(currentCase.timeline ?? [])]
-                    .sort((a, b) => new Date(a.date) - new Date(b.date))
-                    .map((ev) => (
-                      <li key={ev.id} className="p-2 rounded border border-slate-200 bg-slate-50">
-                        <span className="font-medium">{ev.date}:</span>{" "}
-                        <span className="font-medium">{ev.title}</span>
-                        {ev.description ? <span> — {ev.description}</span> : null}
+      {/* Content wrapper with sidebar and main area */}
+      <div className="container">
+        {/* Sidebar visible in cases and ai views */}
+        {view === 'cases' && (
+          <aside>
+            <h2>Cases</h2>
+            <ul className="list">
+              {cases.length === 0 ? (
+                <li style={{ listStyle: 'none', color: '#666', fontStyle: 'italic' }}>
+                  No cases yet
+                </li>
+              ) : (
+                cases.map((cs) => (
+                  <li
+                    key={cs.id}
+                    className={cs.id === currentCaseId ? 'active' : ''}
+                    onClick={() => selectCase(cs.id)}
+                  >
+                    {cs.title || 'Untitled case'}
+                  </li>
+                ))
+              )}
+            </ul>
+            <h3>Add New Case</h3>
+            <form className="form" onSubmit={handleAddCase}>
+              <input
+                type="text"
+                placeholder="Case title"
+                value={caseTitle}
+                onChange={(e) => setCaseTitle(e.target.value)}
+                required
+              />
+              <textarea
+                placeholder="Case description"
+                value={caseDescription}
+                onChange={(e) => setCaseDescription(e.target.value)}
+                rows={3}
+              />
+              <button type="submit">Add Case</button>
+            </form>
+            <h3>Search</h3>
+            <input
+              type="text"
+              placeholder="Search across cases…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {searchResults.length > 0 && (
+              <ul className="list" style={{ marginTop: '0.5rem' }}>
+                {searchResults.map((r, idx) => (
+                  <li key={idx} onClick={() => handleSelectSearchResult(r)}>
+                    <span style={{ fontWeight: 'bold' }}>{r.type}:</span> {r.label}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        )}
+
+        {/* Main content area depending on view */}
+        <main>
+          {/* Cases view */}
+          {view === 'cases' && (
+            <>
+              {!currentCase ? (
+                <div id="no-selection">Select a case to view details.</div>
+              ) : (
+                <>
+                  <section>
+                    <h3>{currentCase.title || 'Untitled case'}</h3>
+                    {currentCase.description && <p>{currentCase.description}</p>}
+                  </section>
+                  {/* Documents */}
+                  <section>
+                    <h4>Documents</h4>
+                    <ul className="list">
+                      {(currentCase.documents ?? []).length === 0 ? (
+                        <li>No documents.</li>
+                      ) : (
+                        currentCase.documents.map((d) => (
+                          <li key={d.id}>
+                            {d.content ? (
+                              <a href={d.content} target="_blank" rel="noreferrer">
+                                {d.name}
+                              </a>
+                            ) : (
+                              d.name
+                            )}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                    <form className="form inline" onSubmit={handleAddDocument}>
+                      <input
+                        type="text"
+                        placeholder="Document name"
+                        value={docName}
+                        onChange={(e) => setDocName(e.target.value)}
+                        required
+                      />
+                      <input type="file" ref={docFileRef} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" />
+                      <button type="submit">Add Document</button>
+                    </form>
+                  </section>
+                  {/* Evidence */}
+                  <section>
+                    <h4>Evidence</h4>
+                    <ul className="list">
+                      {(currentCase.evidence ?? []).length === 0 ? (
+                        <li>No evidence.</li>
+                      ) : (
+                        currentCase.evidence.map((ev) => (
+                          <li key={ev.id}>
+                            {ev.content ? (
+                              <a href={ev.content} target="_blank" rel="noreferrer">
+                                {ev.name}
+                              </a>
+                            ) : (
+                              ev.name
+                            )}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                    <form className="form inline" onSubmit={handleAddEvidence}>
+                      <input
+                        type="text"
+                        placeholder="Evidence name"
+                        value={evName}
+                        onChange={(e) => setEvName(e.target.value)}
+                        required
+                      />
+                      <input type="file" ref={evFileRef} accept="image/*,video/*" />
+                      <button type="submit">Add Evidence</button>
+                    </form>
+                  </section>
+                  {/* Timeline */}
+                  <section>
+                    <h4>Timeline</h4>
+                    <ul className="list">
+                      {[...(currentCase.timeline ?? [])]
+                        .sort((a, b) => new Date(a.date) - new Date(b.date))
+                        .map((ev) => (
+                          <li key={ev.id}>
+                            <span style={{ fontWeight: 'bold' }}>{ev.date}:</span> {ev.title}
+                            {ev.description ? ' – ' + ev.description : ''}
+                          </li>
+                        ))}
+                      {(currentCase.timeline ?? []).length === 0 && <li>No events.</li>}
+                    </ul>
+                    <form className="form inline" onSubmit={handleAddTimeline}>
+                      <input
+                        type="date"
+                        value={tlDate}
+                        onChange={(e) => setTlDate(e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Event title"
+                        value={tlTitle}
+                        onChange={(e) => setTlTitle(e.target.value)}
+                        required
+                      />
+                      <input
+                        type="text"
+                        placeholder="Event description"
+                        value={tlDesc}
+                        onChange={(e) => setTlDesc(e.target.value)}
+                      />
+                      <button type="submit">Add Event</button>
+                    </form>
+                  </section>
+                  {/* FOIA */}
+                  <section>
+                    <h4>FOIA Requests</h4>
+                    <ul className="list">
+                      {(currentCase.foia ?? []).length === 0 ? (
+                        <li>No FOIA requests.</li>
+                      ) : (
+                        currentCase.foia.map((fr) => (
+                          <li key={fr.id}>
+                            <span style={{ fontWeight: 'bold' }}>{fr.subject}</span>
+                            {fr.description ? ' – ' + fr.description : ''}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                    <form className="form inline" onSubmit={handleAddFoia}>
+                      <input
+                        type="text"
+                        placeholder="Request subject"
+                        value={foiaSubject}
+                        onChange={(e) => setFoiaSubject(e.target.value)}
+                        required
+                      />
+                      <textarea
+                        placeholder="Request description"
+                        value={foiaDesc}
+                        onChange={(e) => setFoiaDesc(e.target.value)}
+                        rows={2}
+                      />
+                      <button type="submit">Add FOIA Request</button>
+                    </form>
+                  </section>
+                </>
+              )}
+            </>
+          )}
+          {/* AI Tools view */}
+          {view === 'ai' && (
+            <div className="ai-tools">
+              <h2>AI Tools</h2>
+              <p>Use these tools to gain quick insights and summaries on your cases.</p>
+              <form onSubmit={runAiSearch} className="form">
+                <input
+                  type="text"
+                  placeholder="Ask a question or search across all cases…"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                />
+                <button type="submit">Search</button>
+              </form>
+              {aiResults.length > 0 && (
+                <div className="ai-results">
+                  <h4>Search Results</h4>
+                  <ul className="list">
+                    {aiResults.map((res, idx) => (
+                      <li key={idx} onClick={() => selectCase(res.caseId)}>
+                        <span style={{ fontWeight: 'bold' }}>{res.type}:</span> {res.text}
                       </li>
                     ))}
-                  {(currentCase.timeline ?? []).length === 0 && (
-                    <li className="text-slate-600">No events.</li>
-                  )}
-                </ul>
-                <form onSubmit={addTimeline} className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    value={tlDate}
-                    onChange={(e) => setTlDate(e.target.value)}
-                    className="border rounded px-2 py-1"
-                  />
-                  <input
-                    type="text"
-                    value={tlTitle}
-                    onChange={(e) => setTlTitle(e.target.value)}
-                    placeholder="Event title"
-                    required
-                    className="border rounded px-2 py-1 flex-1 min-w-[180px]"
-                  />
-                  <input
-                    type="text"
-                    value={tlDesc}
-                    onChange={(e) => setTlDesc(e.target.value)}
-                    placeholder="Event description"
-                    className="border rounded px-2 py-1 flex-1 min-w-[180px]"
-                  />
-                  <button className="bg-blue-700 text-white px-3 py-1 rounded hover:bg-blue-800">
-                    Add Event
-                  </button>
-                </form>
-              </section>
-
-              {/* FOIA */}
-              <section>
-                <h4 className="font-semibold mb-2">FOIA Requests</h4>
-                <ul className="space-y-1 mb-2">
-                  {(currentCase.foia ?? []).length === 0 ? (
-                    <li className="text-slate-600">No FOIA requests.</li>
-                  ) : (
-                    currentCase.foia.map((fr) => (
-                      <li key={fr.id} className="p-2 rounded border border-slate-200 bg-slate-50">
-                        <span className="font-medium">{fr.subject}</span>
-                        {fr.description ? <span> — {fr.description}</span> : null}
-                      </li>
-                    ))
-                  )}
-                </ul>
-                <form onSubmit={addFoia} className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={foiaSubject}
-                    onChange={(e) => setFoiaSubject(e.target.value)}
-                    placeholder="Request subject"
-                    required
-                    className="border rounded px-2 py-1 flex-1 min-w-[180px]"
-                  />
-                  <textarea
-                    value={foiaDesc}
-                    onChange={(e) => setFoiaDesc(e.target.value)}
-                    placeholder="Request description"
-                    className="border rounded px-2 py-1 flex-1 min-w-[180px]"
-                    rows={2}
-                  />
-                  <button className="bg-blue-700 text-white px-3 py-1 rounded hover:bg-blue-800">
-                    Add FOIA Request
-                  </button>
-                </form>
-              </section>
+                  </ul>
+                </div>
+              )}
+              <div className="ai-summary">
+                <h4>Case Summary</h4>
+                <p>Generate a concise summary of the currently selected case.</p>
+                <button onClick={generateSummary}>Generate Summary</button>
+                {aiSummary && <pre style={{ whiteSpace: 'pre-wrap' }}>{aiSummary}</pre>}
+              </div>
+            </div>
+          )}
+          {/* Account view */}
+          {view === 'account' && (
+            <div className="account-section">
+              <h2>Account Settings</h2>
+              <p>Username: <strong>{currentUser}</strong></p>
+              <p>Your data is stored locally in your browser. Logging out will simply clear your session.</p>
+              <button onClick={handleLogout}>Logout</button>
             </div>
           )}
         </main>
       </div>
 
-      {/* Footer */}
-      <footer className="bg-slate-100 text-center p-2 text-sm border-t border-slate-200">
-        © 2025 CaseBuddy – All rights reserved.
+      <footer>
+        © {new Date().getFullYear()} CaseBuddy – All rights reserved.
       </footer>
     </div>
   );
