@@ -51,6 +51,11 @@ export default function App() {
   // FOIA form
   const [foiaSubject, setFoiaSubject] = useState('');
   const [foiaDesc, setFoiaDesc] = useState('');
+  // Witness form
+const [setWitName, setWitName] = useState('');
+const [setWitDesc, setWitDesc] = useState('');
+const [setWitnesses, setWitnesses] = useState([]);
+
 
   // --------- AI tools state ---------
   const [aiQuery, setAiQuery] = useState('');
