@@ -34,7 +34,7 @@ export default function App() {
 
   // Timeline form
   const [tlDate, setTlDate] = useState("");
-  the[tlTitle, setTlTitle] = useState(""); // <-- fix typo when pasting: remove "the"
+        [tlTitle, setTlTitle] = useState(""); // <-- fix typo when pasting: remove "the"
   const [tlDesc, setTlDesc] = useState("");
 
   // FOIA form
