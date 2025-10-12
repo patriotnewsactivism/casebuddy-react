@@ -6,6 +6,8 @@ import './App.css';
 // Mount the React application into the root div defined in index.html.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <Provider store={store}>
+      <App />
+    </Provider>
   </React.StrictMode>
 );
